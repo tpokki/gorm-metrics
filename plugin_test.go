@@ -3,6 +3,8 @@ package gm_test
 import (
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	io_prometheus_client "github.com/prometheus/client_model/go"
 	gm "github.com/tpokki/gorm-metrics"
 	"gorm.io/driver/sqlite"
@@ -180,6 +182,55 @@ func TestNamedCtx(t *testing.T) {
 	var value io_prometheus_client.Metric
 	// verify successful query metric with named context
 	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("test_name", "create", "people", "0", "success")
+	if err != nil {
+		t.Fatalf("failed to get metric: %v", err)
+	}
+	if err := metric.Write(&value); err != nil {
+		t.Fatalf("failed to write metric: %v", err)
+	}
+	if value.GetHistogram() == nil {
+		t.Fatalf("expected histogram metric to be recorded, but it was nil")
+	}
+	if value.GetHistogram().GetSampleCount() != 1 {
+		t.Fatalf("expected sample count to be 1, got %d", value.GetHistogram().GetSampleCount())
+	}
+}
+
+func TestCustomHistogram(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open gorm DB: %v", err)
+	}
+
+	// customplugin that collects metrics with just the name label
+	customPlugin := &gm.GormMetrics{
+		HistogramVec: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "gorm_custom_metric",
+			Help:    "Custom GORM metric with just name label",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"name"}),
+		LabelFn: func(db *gorm.DB, action gm.Action) []string {
+			return []string{
+				db.Statement.Context.Value(gm.GormMetricsContextKey).(*gm.MetricContextValue).Name(),
+			}
+		},
+	}
+
+	if err := db.Use(customPlugin); err != nil {
+		t.Fatalf("failed to use custom plugin: %v", err)
+	}
+	if err := db.AutoMigrate(&Person{}); err != nil {
+		t.Fatalf("failed to auto migrate: %v", err)
+	}
+
+	person := &Person{Name: "Bob", Age: 40}
+	if err := db.WithContext(gm.WithName("my_create")).Create(person).Error; err != nil {
+		t.Fatalf("failed to create person model: %v", err)
+	}
+
+	var value io_prometheus_client.Metric
+	// verify successful create metric with custom histogram
+	metric, err := customPlugin.HistogramVec.MetricVec.GetMetricWithLabelValues("my_create")
 	if err != nil {
 		t.Fatalf("failed to get metric: %v", err)
 	}
