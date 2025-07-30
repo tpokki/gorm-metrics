@@ -74,20 +74,28 @@ var (
 	}
 
 	// defaultPlugin is the default GormMetrics instance with default settings.
-	defaultPlugin = &GormMetrics{
-		HistogramVec: promauto.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    gormMetricName,
-			Help:    "Duration of GORM operations in seconds",
-			Buckets: prometheus.DefBuckets,
-		}, MetricLabels),
-		LabelFn: defaultLabelFn,
-	}
+	defaultPlugin *GormMetrics
 )
 
 // Default returns a new GormMetrics instance with default settings.
 // It initializes the HistogramVec with default buckets and automatically
-// registers it with Prometheus' default registry.
+// registers it with Prometheus' default registry. This function is not thread-safe,
+// and will panic if the metric is registration fails. It is recommended to call this
+// function once at the start of your application.
+// If you need to customize the metric or use different prometheus registry, create a
+// new GormMetrics instance instead.
 func Default() *GormMetrics {
+	if defaultPlugin == nil {
+		defaultPlugin = &GormMetrics{
+			// n.b. promauto panics if the metric is already registered.
+			HistogramVec: promauto.NewHistogramVec(prometheus.HistogramOpts{
+				Name:    gormMetricName,
+				Help:    "Duration of GORM operations in seconds",
+				Buckets: prometheus.DefBuckets,
+			}, MetricLabels),
+			LabelFn: defaultLabelFn,
+		}
+	}
 	return defaultPlugin
 }
 
