@@ -202,7 +202,7 @@ func TestCustomHistogram(t *testing.T) {
 		t.Fatalf("failed to open gorm DB: %v", err)
 	}
 
-	// customplugin that collects metrics with just the name label
+	// custom plugin that collects metrics with just the name label
 	customPlugin := &gm.GormMetrics{
 		HistogramVec: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "gorm_custom_metric",
