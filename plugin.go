@@ -23,9 +23,10 @@ const (
 	ActionRow    Action = "row"
 	ActionRaw    Action = "raw"
 
-	gormMetricsStartKey = "gorm_metrics_start"
-	gormMetricName      = "gorm_metrics_duration_seconds"
+	gormMetricsContextKey = "gorm_metrics_context"
+	gormMetricName        = "gorm_metrics_duration_seconds"
 
+	labelName    = "name"
 	labelAction  = "action"
 	labelModel   = "model"
 	labelJoins   = "joins"
@@ -36,6 +37,7 @@ const (
 )
 
 var MetricLabels = []string{
+	labelName,
 	labelAction,
 	labelModel,
 	labelJoins,
@@ -50,9 +52,20 @@ type GormMetrics struct {
 	LabelFn      func(*gorm.DB, Action) []string
 }
 
+type metricContextValue struct {
+	startTime time.Time
+	name      string
+}
+
 var (
 	// defaultLabelFn is the default function to generate labels for GORM metrics.
 	defaultLabelFn = func(db *gorm.DB, action Action) []string {
+		metricContext, ok := db.Statement.Context.Value(gormMetricsContextKey).(*metricContextValue)
+		name := "default"
+		if ok {
+			name = metricContext.name
+		}
+
 		model := db.Statement.Table
 		if model == "" {
 			model = "unknown"
@@ -66,6 +79,7 @@ var (
 		}
 
 		return []string{
+			name,
 			string(action),
 			strings.ToLower(model),
 			joins,
@@ -101,6 +115,25 @@ func Default() *GormMetrics {
 
 func (g *GormMetrics) Name() string {
 	return PluginName
+}
+
+// WithName returns a context with a metric name set, which can be used to
+// identify the operation in the metrics. Use this context when starting a GORM operation:
+//
+//	db.WithContext(gm.WithName("my_update")).Model(&Thing{}).Update("name", "new name")
+func WithName(name string) context.Context {
+	return WithNameContext(context.Background(), name)
+}
+
+// WithNameContext returns a context with a metric name set, which can be used to
+// identify the operation in the metrics. Use this context when starting a GORM operation:
+//
+//	db.WithContext(gm.WithNameContext(ctx, "my_update")).Model(&Thing{}).Update("name", "new name")
+func WithNameContext(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, gormMetricsContextKey, &metricContextValue{
+		startTime: time.Now(),
+		name:      name,
+	})
 }
 
 func (g *GormMetrics) Initialize(db *gorm.DB) error {
@@ -141,18 +174,28 @@ func (g *GormMetrics) observeMetrics(db *gorm.DB, action Action) {
 	if db.Statement.Context == nil {
 		return
 	}
-	startTime, ok := db.Statement.Context.Value(gormMetricsStartKey).(time.Time)
+	metricContext, ok := db.Statement.Context.Value(gormMetricsContextKey).(*metricContextValue)
 	if !ok {
 		return
 	}
 
 	g.HistogramVec.WithLabelValues(
 		g.LabelFn(db, action)...,
-	).Observe(time.Since(startTime).Seconds())
+	).Observe(time.Since(metricContext.startTime).Seconds())
 }
 
 func (g *GormMetrics) start(db *gorm.DB) {
-	db.Statement.Context = context.WithValue(db.Statement.Context, gormMetricsStartKey, time.Now())
+	metricContext, ok := db.Statement.Context.Value(gormMetricsContextKey).(*metricContextValue)
+	if !ok {
+		// If no metric context is set, we create a default one.
+		db.Statement.Context = context.WithValue(db.Statement.Context, gormMetricsContextKey, &metricContextValue{
+			startTime: time.Now(),
+			name:      "default",
+		})
+	} else {
+		// If a metric context is already set, we update the start time.
+		metricContext.startTime = time.Now()
+	}
 }
 
 func anyErr(err ...error) error {
