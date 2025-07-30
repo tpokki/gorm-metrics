@@ -53,9 +53,13 @@ Labels:
 - `joins`: Number of joins in the query (as a string, e.g. `0`, `1`)
 - `outcome`: The result of the operation (`success`, `error`)
 
-Example:
-```
 gorm_metrics_duration_seconds{action="query",model="people",joins="1",outcome="success"} 0.001
+
+Example:
+
+```
+gorm_metrics_duration_seconds{name="default",action="query",model="people",joins="1",outcome="success"} 0.001
+gorm_metrics_duration_seconds{name="my_update",action="update",model="things",joins="0",outcome="success"} 0.002
 ```
 
 
@@ -84,18 +88,33 @@ The default plugin uses Prometheus default buckets and automatically registers t
 
 - `action`, `model`, `joins`, `outcome`
 
+
 You can customize label extraction by providing your own `LabelFn` when creating a `GormMetrics` instance:
 
 ```go
 plugin := &gm.GormMetrics{
-    HistogramVec: prometheus.NewHistogramVec(..., gm.MetricLabels),
+    HistogramVec: prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "gorm_custom_metric",
+            Help:    "Custom GORM metric with just name label",
+            Buckets: prometheus.DefBuckets,
+        },
+        []string{"name"}, // Only the name label
+    ),
     LabelFn: func(db *gorm.DB, action gm.Action) []string {
-        // custom label logic
+        ctxVal, ok := db.Statement.Context.Value(gm.GormMetricsContextKey).(*gm.MetricContextValue)
+        if ok {
+            return []string{ctxVal.Name()}
+        }
+        return []string{"default"}
     },
 }
+
+// Usage example:
+db.WithContext(gm.WithName("my_create")).Create(&Person{Name: "Bob", Age: 40})
 ```
 
-See the code for details on advanced configuration.
+See the code for details on advanced configuration and more examples.
 
 ## License
 
