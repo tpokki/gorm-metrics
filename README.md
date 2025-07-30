@@ -38,6 +38,12 @@ if err != nil {
 if err := db.Use(gm.Default()); err != nil {
     panic(err)
 }
+
+// You can give custom name for the query
+db.WithContext(gm.WithName("my_create")).Create(&Person{Name: "Bob", Age: 40})
+
+// Or just rely on default labels
+db.Create(&Person{Name: "Alice", Age: 40})
 ```
 
 
@@ -48,18 +54,19 @@ The plugin exposes a Prometheus histogram metric:
 - `gorm_metrics_duration_seconds`: Duration of GORM operations in seconds
 
 Labels:
+- `name`: The name of the operation, if defined in operation context (see below). Default value is `default`. 
 - `action`: The type of GORM operation (`query`, `create`, `update`, `delete`, `raw`, `row`)
 - `model`: The table/model name (e.g. `people`, `favorite_colors`)
 - `joins`: Number of joins in the query (as a string, e.g. `0`, `1`)
 - `outcome`: The result of the operation (`success`, `error`)
 
-gorm_metrics_duration_seconds{action="query",model="people",joins="1",outcome="success"} 0.001
+gorm_metrics_duration_seconds{name="default",action="query",model="people",joins="1",outcome="success"} 0.001
 
 Example:
 
 ```
 gorm_metrics_duration_seconds{name="default",action="query",model="people",joins="1",outcome="success"} 0.001
-gorm_metrics_duration_seconds{name="my_update",action="update",model="things",joins="0",outcome="success"} 0.002
+gorm_metrics_duration_seconds{name="my_create",action="update",model="things",joins="0",outcome="success"} 0.002
 ```
 
 
@@ -86,7 +93,7 @@ See `plugin_test.go` for example usage and metric assertions. The test covers pl
 
 The default plugin uses Prometheus default buckets and automatically registers the histogram with the following labels:
 
-- `action`, `model`, `joins`, `outcome`
+- `name`, `action`, `model`, `joins`, `outcome`
 
 
 You can customize label extraction by providing your own `LabelFn` when creating a `GormMetrics` instance:
