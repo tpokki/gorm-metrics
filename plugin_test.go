@@ -59,7 +59,7 @@ func TestSimple(t *testing.T) {
 	var value io_prometheus_client.Metric
 
 	// verify successful query metric
-	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("query", "people", "0", "success")
+	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("default", "query", "people", "0", "success")
 	if err != nil {
 		t.Fatalf("failed to get metric: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSimple(t *testing.T) {
 	}
 
 	// verify failed query metric (query against empty table)
-	metric, err = plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("query", "people", "0", "error")
+	metric, err = plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("default", "query", "people", "0", "error")
 	if err != nil {
 		t.Fatalf("failed to get error metric: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestSimple(t *testing.T) {
 	}
 
 	// verify delete metric
-	metric, err = plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("delete", "people", "0", "success")
+	metric, err = plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("default", "delete", "people", "0", "success")
 	if err != nil {
 		t.Fatalf("failed to get delete metric: %v", err)
 	}
@@ -143,7 +143,43 @@ func TestJoins(t *testing.T) {
 
 	var value io_prometheus_client.Metric
 	// verify successful join query metric
-	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("query", "people", "1", "success")
+	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("default", "query", "people", "1", "success")
+	if err != nil {
+		t.Fatalf("failed to get metric: %v", err)
+	}
+	if err := metric.Write(&value); err != nil {
+		t.Fatalf("failed to write metric: %v", err)
+	}
+	if value.GetHistogram() == nil {
+		t.Fatalf("expected histogram metric to be recorded, but it was nil")
+	}
+	if value.GetHistogram().GetSampleCount() != 1 {
+		t.Fatalf("expected sample count to be 1, got %d", value.GetHistogram().GetSampleCount())
+	}
+}
+
+func TestNamedCtx(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open gorm DB: %v", err)
+	}
+
+	plugin := gm.Default()
+	if err := db.Use(plugin); err != nil {
+		t.Fatalf("failed to use plugin: %v", err)
+	}
+	if err := db.AutoMigrate(&Person{}); err != nil {
+		t.Fatalf("failed to auto migrate: %v", err)
+	}
+
+	person := &Person{Name: "Alice", Age: 25}
+	if err := db.WithContext(gm.WithName("test_name")).Create(person).Error; err != nil {
+		t.Fatalf("failed to create person model: %v", err)
+	}
+
+	var value io_prometheus_client.Metric
+	// verify successful query metric with named context
+	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("test_name", "create", "people", "0", "success")
 	if err != nil {
 		t.Fatalf("failed to get metric: %v", err)
 	}
