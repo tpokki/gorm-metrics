@@ -16,12 +16,6 @@ jobs:
         uses: actions/setup-go@v5
       - name: Test and Build
         run: make all
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-bins
-          path: bin/*
-          retention-days: 1
       - name: Bump version and push tag
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
