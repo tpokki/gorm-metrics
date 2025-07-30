@@ -66,7 +66,7 @@ Example:
 
 ```
 gorm_metrics_duration_seconds{name="default",action="query",model="people",joins="1",outcome="success"} 0.001
-gorm_metrics_duration_seconds{name="my_create",action="update",model="things",joins="0",outcome="success"} 0.002
+gorm_metrics_duration_seconds{name="my_create",action="create",model="things",joins="0",outcome="success"} 0.002
 ```
 
 
