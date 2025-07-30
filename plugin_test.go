@@ -1,0 +1,159 @@
+package gm_test
+
+import (
+	"testing"
+
+	io_prometheus_client "github.com/prometheus/client_model/go"
+	gm "github.com/tpokki/gorm-metrics"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+)
+
+type Person struct {
+	gorm.Model
+
+	Name string
+	Age  int
+}
+
+type FavoriteColor struct {
+	PersonID uint
+	Name     string
+}
+
+func TestSimple(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open gorm DB: %v", err)
+	}
+
+	plugin := gm.Default()
+	if err := db.Use(plugin); err != nil {
+		t.Fatalf("failed to use plugin: %v", err)
+	}
+	if err := db.AutoMigrate(&Person{}); err != nil {
+		t.Fatalf("failed to auto migrate: %v", err)
+	}
+	person := &Person{Name: "Joe", Age: 30}
+	if err := db.Create(person).Error; err != nil {
+		t.Fatalf("failed to create test model: %v", err)
+	}
+
+	// Perform 10 operations to trigger metrics
+	for range 10 {
+		if err := db.First(&person).Error; err != nil {
+			t.Fatalf("failed to query test model: %v", err)
+		}
+	}
+
+	if person.Name != "Joe" || person.Age != 30 {
+		t.Fatalf("expected person model to have Name 'Joe' and Age 30, got Name '%s' and Age %d", person.Name, person.Age)
+	}
+	if err := db.Delete(person).Error; err != nil {
+		t.Fatalf("failed to delete person model: %v", err)
+	}
+	if err := db.First(&person).Error; err == nil {
+		t.Fatalf("expected person model to be deleted, but it was found")
+	}
+
+	var value io_prometheus_client.Metric
+
+	// verify successful query metric
+	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("query", "people", "0", "success")
+	if err != nil {
+		t.Fatalf("failed to get metric: %v", err)
+	}
+	if err := metric.Write(&value); err != nil {
+		t.Fatalf("failed to write metric: %v", err)
+	}
+	if value.GetHistogram() == nil {
+		t.Fatalf("expected histogram metric to be recorded, but it was nil")
+	}
+	if value.GetHistogram().GetSampleCount() != 10 {
+		t.Fatalf("expected sample count to be 10, got %d", value.GetHistogram().GetSampleCount())
+	}
+
+	// verify failed query metric (query against empty table)
+	metric, err = plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("query", "people", "0", "error")
+	if err != nil {
+		t.Fatalf("failed to get error metric: %v", err)
+	}
+	if err := metric.Write(&value); err != nil {
+		t.Fatalf("failed to write error metric: %v", err)
+	}
+	if value.GetHistogram() == nil {
+		t.Fatalf("expected histogram metric to be recorded, but it was nil")
+	}
+	if value.GetHistogram().GetSampleCount() != 1 {
+		t.Fatalf("expected sample count to be 1, got %d", value.GetHistogram().GetSampleCount())
+	}
+
+	// verify delete metric
+	metric, err = plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("delete", "people", "0", "success")
+	if err != nil {
+		t.Fatalf("failed to get delete metric: %v", err)
+	}
+	if err := metric.Write(&value); err != nil {
+		t.Fatalf("failed to write delete metric: %v", err)
+	}
+	if value.GetHistogram() == nil {
+		t.Fatalf("expected delete histogram metric to be recorded, but it was nil")
+	}
+	if value.GetHistogram().GetSampleCount() != 1 {
+		t.Fatalf("expected delete sample count to be 1, got %d", value.GetHistogram().GetSampleCount())
+	}
+}
+
+func TestJoins(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open gorm DB: %v", err)
+	}
+
+	plugin := gm.Default()
+	if err := db.Use(plugin); err != nil {
+		t.Fatalf("failed to use plugin: %v", err)
+	}
+	if err := db.AutoMigrate(&Person{}, &FavoriteColor{}); err != nil {
+		t.Fatalf("failed to auto migrate: %v", err)
+	}
+
+	person := &Person{Name: "Jill", Age: 30}
+	if err := db.Create(person).Error; err != nil {
+		t.Fatalf("failed to create person model: %v", err)
+	}
+
+	favoriteColor := &FavoriteColor{Name: "Red", PersonID: person.ID}
+	if err := db.Create(favoriteColor).Error; err != nil {
+		t.Fatalf("failed to create favorite color model: %v", err)
+	}
+
+	var result struct {
+		Person
+		FavoriteColor
+	}
+
+	if err := db.Model(&Person{}).Joins("LEFT JOIN favorite_colors ON favorite_colors.person_id = people.id").First(&result).Error; err != nil {
+		t.Fatalf("failed to perform join query: %v", err)
+	}
+
+	if result.Person.Name != "Jill" || result.Age != 30 {
+		t.Fatalf("expected joined model to have Name 'Jill' and Age 30, got Name '%s' and Age %d", result.Person.Name, result.Age)
+	}
+
+	var value io_prometheus_client.Metric
+	// verify successful join query metric
+	metric, err := plugin.HistogramVec.MetricVec.GetMetricWithLabelValues("query", "people", "1", "success")
+	if err != nil {
+		t.Fatalf("failed to get metric: %v", err)
+	}
+	if err := metric.Write(&value); err != nil {
+		t.Fatalf("failed to write metric: %v", err)
+	}
+	if value.GetHistogram() == nil {
+		t.Fatalf("expected histogram metric to be recorded, but it was nil")
+	}
+	if value.GetHistogram().GetSampleCount() != 1 {
+		t.Fatalf("expected sample count to be 1, got %d", value.GetHistogram().GetSampleCount())
+	}
+}
