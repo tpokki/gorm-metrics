@@ -210,9 +210,11 @@ func TestCustomHistogram(t *testing.T) {
 			Buckets: prometheus.DefBuckets,
 		}, []string{"name"}),
 		LabelFn: func(db *gorm.DB, action gm.Action) []string {
-			return []string{
-				db.Statement.Context.Value(gm.GormMetricsContextKey).(*gm.MetricContextValue).Name(),
+			ctxVal, ok := db.Statement.Context.Value(gm.GormMetricsContextKey).(*gm.MetricContextValue)
+			if ok {
+				return []string{ctxVal.Name()}
 			}
+			return []string{"default"}
 		},
 	}
 
@@ -242,5 +244,19 @@ func TestCustomHistogram(t *testing.T) {
 	}
 	if value.GetHistogram().GetSampleCount() != 1 {
 		t.Fatalf("expected sample count to be 1, got %d", value.GetHistogram().GetSampleCount())
+	}
+}
+
+func TestDefault(t *testing.T) {
+	// Ensure Default() initializes the plugin correctly
+	plugin := gm.Default()
+	if plugin == nil {
+		t.Fatal("Default() returned nil plugin")
+	}
+
+	// check that it is safe to call Default() multiple times
+	again := gm.Default()
+	if plugin != again {
+		t.Fatal("Default() should return the same instance on subsequent calls")
 	}
 }

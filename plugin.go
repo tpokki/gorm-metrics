@@ -2,12 +2,12 @@ package gm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"gorm.io/gorm"
 )
 
@@ -91,28 +91,32 @@ var (
 		}
 	}
 
+	// defaultHistogramVec is the default Prometheus histogram vector for GORM metrics.
+	defaultHistogramVec = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    GormMetricName,
+			Help:    "Duration of GORM operations in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		MetricLabels,
+	)
+
 	// defaultPlugin is the default GormMetrics instance with default settings.
-	defaultPlugin *GormMetrics
+	defaultPlugin = &GormMetrics{
+		HistogramVec: defaultHistogramVec,
+		LabelFn:      defaultLabelFn,
+	}
 )
 
 // Default returns a new GormMetrics instance with default settings.
-// It initializes the HistogramVec with default buckets and automatically
-// registers it with Prometheus' default registry. This function is not thread-safe,
-// and will panic if the metric is registration fails. It is recommended to call this
-// function once at the start of your application.
+// It registers the default histogram to the default Prometheus registry on the first call.
+//
 // If you need to customize the metric or use different prometheus registry, create a
 // new GormMetrics instance instead.
 func Default() *GormMetrics {
-	if defaultPlugin == nil {
-		defaultPlugin = &GormMetrics{
-			// n.b. promauto panics if the metric is already registered.
-			HistogramVec: promauto.NewHistogramVec(prometheus.HistogramOpts{
-				Name:    GormMetricName,
-				Help:    "Duration of GORM operations in seconds",
-				Buckets: prometheus.DefBuckets,
-			}, MetricLabels),
-			LabelFn: defaultLabelFn,
-		}
+	err := prometheus.Register(defaultHistogramVec)
+	if err != nil && !errors.As(err, &prometheus.AlreadyRegisteredError{}) {
+		panic(fmt.Sprintf("failed to register default GormMetrics histogram: %+v", err))
 	}
 	return defaultPlugin
 }

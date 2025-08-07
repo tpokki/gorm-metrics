@@ -6,7 +6,7 @@ GORM Metrics is a plugin for [GORM](https://gorm.io/) that automatically collect
 ## Features
 
 - Tracks duration of GORM operations (query, create, update, delete, raw, row)
-- Prometheus histogram metrics with rich labels: action, model, joins, outcome
+- Prometheus histogram metrics with rich labels: name, action, model, joins, outcome
 - Identifies number of joins in queries
 - Simple integration with GORM
 
@@ -54,7 +54,7 @@ The plugin exposes a Prometheus histogram metric:
 - `gorm_metrics_duration_seconds`: Duration of GORM operations in seconds
 
 Labels:
-- `name`: The name of the operation, if defined in operation context (see below). Default value is `default`. 
+- `name`: The name of the operation, if defined in operation context (see below). Default value is `default`.
 - `action`: The type of GORM operation (`query`, `create`, `update`, `delete`, `raw`, `row`)
 - `model`: The table/model name (e.g. `people`, `favorite_colors`)
 - `joins`: Number of joins in the query (as a string, e.g. `0`, `1`)
@@ -100,7 +100,7 @@ You can customize label extraction by providing your own `LabelFn` when creating
 
 ```go
 plugin := &gm.GormMetrics{
-    HistogramVec: prometheus.NewHistogramVec(
+    HistogramVec: promauto.NewHistogramVec(
         prometheus.HistogramOpts{
             Name:    "gorm_custom_metric",
             Help:    "Custom GORM metric with just name label",
